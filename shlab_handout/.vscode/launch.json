@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug make test03",
+      "name": "Debug make test02",
       "type": "cppdbg",
       "request": "launch",
       "program": "/usr/bin/make",

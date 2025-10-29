@@ -225,18 +225,18 @@ void eval(char *cmdline)
   // If the user has not requested a built-in command fork and call execve
   if (!builtin_cmd(argv1)) {
       if( (pid = fork()) == 0){
-        if(execve(cmdline, argv1, environ) <0){
-          printf("%s: Command not found.\n", argv1[0])
+        if(execve(argv1[0], argv1, environ) <0){
+          printf("%s: Command not found.\n", argv1[0]);
         }
           // fg job
-        if(bg = 0){
+        if(!bg){
           int status;
-          waitpid(-1,&status,0)>0;
+          if (waitpid(-1,&status,0) < 0);
+          app_error("waitfg: waitpid error");
         }
-  }
-  // exit after built in command (maybe will need to change this)
-  else {
-    exit(0);
+        else{
+          printf("%d %s", pid, cmdline);
+        }
   }
   // handle second command
   if(cmd2 != NULL)
@@ -323,7 +323,7 @@ int builtin_cmd(char **argv)
   //       "bg" and "fg" commands are partially handled here,
   //       but you need to implement the do_bg and do_fg functions.
   if(!strcmp(cmd, "quit")){
-    return 1;
+    exit(0);
   }
 
   if (!strcmp(cmd, "bg") || !strcmp(cmd, "fg")) { /* bg and fg commands */
