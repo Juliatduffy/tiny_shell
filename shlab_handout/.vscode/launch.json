@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug make test03",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "/usr/bin/make",
+      "args": ["test02"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "externalConsole": true,
+      "stopAtEntry": false,
+      "preLaunchTask": "make",
+      "setupCommands": [
+        {
+          "description": "Enable pretty printing",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
