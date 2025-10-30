@@ -194,9 +194,17 @@ int main(int argc, char **argv)
  * each child process must have a unique process group ID so that our
  * background children don't receive SIGINT (SIGTSTP) from the kernel
  * when we type ctrl-c (ctrl-z) at the keyboard.  
+ * 
+ * In eval, the parent must use sigprocmask to block SIGCHLD signals 
+ * before it forks the child, and then unblock these signals, again 
+ * using sigprocmask, after it adds the child to the job list by 
+ * calling addjob.  Since children inherit the blocked vectors of 
+ * their parents, the child must be sure to then unblock SIGCHLD signals 
+ * before it execs the new program.
  */
 void eval(char *cmdline) 
 {
+
   char *argv1[MAXARGS]; /* argv for execve() */
   char *argv2[MAXARGS]; /* argv for second command execve() */
   pid_t pid;
@@ -221,25 +229,36 @@ void eval(char *cmdline)
 
   // handle first command
 
+  
+  sigset_t mask, prev_mask;
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGCHLD);
+
   // If user called quit, jobs, bg or fg execute it immediately
   // If the user has not requested a built-in command fork and call execve
   if (!builtin_cmd(argv1)) {
-      if( (pid = fork()) == 0){
-        if(execve(argv1[0], argv1, environ) <0){
-          printf("%s: Command not found.\n", argv1[0]);
-        }
-          // fg job
-        if(!bg){
-          int status;
-          if (waitpid(-1,&status,0) < 0);
-          app_error("waitfg: waitpid error");
-        }
-        else{
-          printf("%d %s", pid, cmdline);
-        }
+    sigprocmask(SIG_BLOCK, &mask, &prev_mask);
+    if( (pid = fork()) == 0){
+      if(execve(argv1[0], argv1, environ) < 0){
+        printf("%s: Command not found.\n", argv1[0]);
+        fflush(stdout);
+        exit(1);
+      }
+    }
+
+    addjob(jobs, pid, FG, cmdline);
+    sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+    // fg job
+    if(!bg){
+      int status;
+      waitfg(pid);
+    }
+    else{
+      printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+    }
   }
   // handle second command
-  if(cmd2 != NULL)
+  if(cmd2 != NULL) {
       bg = parseline(cmd2, argv2, 2);
   }
   return;
@@ -369,17 +388,25 @@ void do_bg(int jid)
 /* 
  * do_fg - Execute the builtin fg command
  */
-void do_fg(int jid) 
+void do_fg(int jid)  
 {
   return;
 }
 
 /* 
  * waitfg - Block until process pid is no longer the foreground process
+ In waitfg, use a loop around the sleep function, checking if the foreground job has finished.
+ Alternatively, a loop around the sigsuspend function, checking if the foreground job has finished.
  */
 void waitfg(pid_t pid)
 {
-  return;
+  sigset_t emptyset;
+  sigemptyset(&emptyset);
+  struct job_t *job = getjobpid(jobs, pid);
+  if(job == NULL) return;
+  while(job->state == 1) {
+    sigsuspend(&emptyset);
+  }
 }
 
 /*****************
@@ -393,10 +420,33 @@ void waitfg(pid_t pid)
  *     available zombie children, but doesn't wait for any other
  *     currently running children to terminate.  
  */
-void sigchld_handler(int sig) 
+void sigchld_handler(int sig)
 {
-  return;
+    int olderrno = errno;
+    pid_t pid;
+    int status;
+
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+        if (WIFEXITED(status) ){
+            deletejob(jobs, pid);
+        } 
+        else if(WIFSIGNALED(status)) {
+          deletejob(jobs, pid);
+        }
+        else if (WIFSTOPPED(status)) {
+            getjobpid(jobs, pid)->state = ST;
+        } 
+        else if (WIFCONTINUED(status)) {
+            getjobpid(jobs, pid)->state = BG;
+        }
+        else{
+          deletejob(jobs, pid);
+        }
+    }
+
+    errno = olderrno;
 }
+
 
 /* 
  * sigint_handler - The kernel sends a SIGINT to the shell whenver the

@@ -2,11 +2,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug make test02",
+      "name": "Debug make test04",
       "type": "cppdbg",
       "request": "launch",
       "program": "/usr/bin/make",
-      "args": ["test02"],
+      "args": ["test04"],
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",
       "externalConsole": true,
