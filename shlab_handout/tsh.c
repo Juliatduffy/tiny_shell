@@ -204,7 +204,6 @@ int main(int argc, char **argv)
  */
 void eval(char *cmdline) 
 {
-
   char *argv1[MAXARGS]; /* argv for execve() */
   char *argv2[MAXARGS]; /* argv for second command execve() */
   pid_t pid;
@@ -239,7 +238,7 @@ void eval(char *cmdline)
     if( (pid = fork()) == 0){
       setpgid(0, 0);
       if(execve(argv1[0], argv1, environ) < 0){
-        printf("%s: Command not found.\n", argv1[0]);
+        printf("%s: Command not found\n", argv1[0]);
         fflush(stdout);
         exit(1);
       }
@@ -388,16 +387,23 @@ void do_bg(int jid)
   if(j != NULL) {
     if(j->pid > 0) {
       getjobjid(jobs, jid)->state = BG;
-      kill(j->pid, SIGCONT); 
-      waitfg(j->pid);
+      int negpid = 0 - j->pid;
+      kill(negpid, SIGCONT); 
+      printf("[%d] (%d) %s", jid, j->pid, j->cmdline);
     }
   }
-  printf("No such job\n");
+  else {
+  printf("%s%d%s", "%", jid, ": No such job\n");
   fflush(stdout);
+  }
 }
 
 /* 
  * do_fg - Execute the builtin fg command
+  int pid = getjobjid(jobs, jid)->pid;
+  getjobjid(jobs, jid)->state = FG;
+  kill(-pid, SIGCONT); // TODO error check
+  waitfg(pid);
  */
 void do_fg(int jid)  
 {  
@@ -405,14 +411,15 @@ void do_fg(int jid)
   struct job_t * j = getjobjid(jobs, jid);
   if(j != NULL) {
     if(j->pid > 0) {
+      int negpid = 0 - j->pid;
       getjobjid(jobs, jid)->state = FG;
-      kill(j->pid, SIGCONT); 
+      kill(negpid, SIGCONT);
       waitfg(j->pid);
     }
   }
   else {
-  printf("No such job\n");
-  fflush(stdout);
+  printf("%s%d%s", "%", jid, ": No such job\n");
+    fflush(stdout);
   }
 }
 
@@ -445,29 +452,45 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig)
 {
-    int olderrno = errno;
     pid_t pid;
     int status;
 
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
-        if (WIFEXITED(status) ){
-            deletejob(jobs, pid);
+      int sig = WTERMSIG(status);
+        if (WIFEXITED(status) || WIFSIGNALED(status)){
+          sio_puts("Job [");
+          sio_putl(getjobpid(jobs, pid)->jid);
+          sio_puts("] (");
+          sio_putl(pid);
+          sio_puts(") terminated by signal "); 
+          sio_putl(sig);
+          sio_puts("\n");
+          deletejob(jobs, pid);
         } 
-        else if(WIFSIGNALED(status)) {
-            deletejob(jobs, pid);
-        }
         else if (WIFSTOPPED(status)) {
+            sio_puts("Job [");
+            sio_putl(getjobpid(jobs, pid)->jid);
+            sio_puts("] (");
+            sio_putl(pid);
+            sio_puts(") stopped by signal "); 
+            sio_putl(sig);
+            sio_puts("\n");
             getjobpid(jobs, pid)->state = ST;
         } 
         else if (WIFCONTINUED(status)) {
             getjobpid(jobs, pid)->state = BG;
         }
         else{
+          sio_puts("Job [");
+          sio_putl(getjobpid(jobs, pid)->jid);
+          sio_puts("] (");
+          sio_putl(pid);
+          sio_puts(") terminated by signal "); //fix this
+          sio_putl(sig);
+          sio_puts("\n");
           deletejob(jobs, pid);
         }
     }
-
-    errno = olderrno;
 }
 // get job in the foreground
 int getfgpid(){
@@ -492,15 +515,8 @@ void sigint_handler(int sig)
   int negpid = 0 - pid;
 
   if(pid > 0 ){
-    sio_puts("Job [");
-    sio_putl(getjobpid(jobs, pid)->jid);
-    sio_puts("] (");
-    sio_putl(pid);
-    sio_puts(") terminated by signal "); //fix this
-    sio_putl(sig);
-    sio_puts("\n");
     deletejob(jobs, pid);
-    kill(negpid, SIGKILL);
+    kill(negpid, SIGINT);
   }
 }
 
@@ -515,11 +531,6 @@ void sigtstp_handler(int sig)
   int negpid = 0 - pid;
 
   if(pid != 0 ){
-    sio_puts("Job [");
-    sio_putl(getjobpid(jobs, pid)->jid);
-    sio_puts("] stopped by signal ");
-    sio_putl(sig);
-    sio_puts("\n");
     getjobpid(jobs, pid);
     kill(negpid, SIGSTOP);
   }
