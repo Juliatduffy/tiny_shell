@@ -237,7 +237,7 @@ void eval(char *cmdline)
   if (!builtin_cmd(argv1)) {
     sigprocmask(SIG_BLOCK, &mask, &prev_mask);
     if( (pid = fork()) == 0){
-       setpgid(0, 0);
+      setpgid(0, 0);
       if(execve(argv1[0], argv1, environ) < 0){
         printf("%s: Command not found.\n", argv1[0]);
         fflush(stdout);
@@ -366,8 +366,9 @@ int builtin_cmd(char **argv)
       
     if(!strcmp(cmd, "bg"))
       do_bg(jid);
-    else
+    else {
       do_fg(jid);
+    }
     return 1;
   }
 
@@ -383,9 +384,16 @@ int builtin_cmd(char **argv)
  */
 void do_bg(int jid) 
 {
-  kill(getjobjid(jobs, jid)->pid, SIGCONT);
-  getjobjid(jobs, jid)->state = BG;
-  return;
+  struct job_t * j = getjobjid(jobs, jid);
+  if(j != NULL) {
+    if(j->pid > 0) {
+      getjobjid(jobs, jid)->state = BG;
+      kill(j->pid, SIGCONT); 
+      waitfg(j->pid);
+    }
+  }
+  printf("No such job\n");
+  fflush(stdout);
 }
 
 /* 
@@ -393,11 +401,19 @@ void do_bg(int jid)
  */
 void do_fg(int jid)  
 {  
-  int pid = getjobjid(jobs, jid)->pid;
-  getjobjid(jobs, jid)->state = FG;
-  kill(-pid, SIGCONT); // TODO error check
-  waitfg(pid);
-  return;
+  // get ptr to job check if null
+  struct job_t * j = getjobjid(jobs, jid);
+  if(j != NULL) {
+    if(j->pid > 0) {
+      getjobjid(jobs, jid)->state = FG;
+      kill(j->pid, SIGCONT); 
+      waitfg(j->pid);
+    }
+  }
+  else {
+  printf("No such job\n");
+  fflush(stdout);
+  }
 }
 
 /* 
@@ -411,7 +427,7 @@ void waitfg(pid_t pid)
   sigemptyset(&emptyset);
   struct job_t *job = getjobpid(jobs, pid);
   if(job == NULL) return;
-  while(job->state == 1) { // check if null
+  while(job->state == 1) { 
     sigsuspend(&emptyset);
   }
 }
@@ -421,7 +437,7 @@ void waitfg(pid_t pid)
  *****************/
 
 /* 
- * sigchld_handler - The kernel sends a SIGCHLD to the shell whenever
+ *      sigchld_handler - The kernel sends a SIGCHLD to the shell whenever
  *     a child job terminates (becomes a zombie), or stops because it
  *     received a SIGSTOP or SIGTSTP signal. The handler reaps all
  *     available zombie children, but doesn't wait for any other
@@ -438,7 +454,7 @@ void sigchld_handler(int sig)
             deletejob(jobs, pid);
         } 
         else if(WIFSIGNALED(status)) {
-          deletejob(jobs, pid);
+            deletejob(jobs, pid);
         }
         else if (WIFSTOPPED(status)) {
             getjobpid(jobs, pid)->state = ST;
@@ -474,12 +490,13 @@ void sigint_handler(int sig)
 {
   int pid = getfgpid();
   int negpid = 0 - pid;
-  sio_puts("sigint\n");
 
   if(pid > 0 ){
     sio_puts("Job [");
     sio_putl(getjobpid(jobs, pid)->jid);
-    sio_puts("] terminated by signal "); //fix this
+    sio_puts("] (");
+    sio_putl(pid);
+    sio_puts(") terminated by signal "); //fix this
     sio_putl(sig);
     sio_puts("\n");
     deletejob(jobs, pid);

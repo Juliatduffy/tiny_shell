@@ -6,7 +6,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "/usr/bin/make",
-      "args": ["test04"],
+      "args": ["test14"],
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",
       "externalConsole": true,
