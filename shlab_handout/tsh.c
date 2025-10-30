@@ -239,6 +239,7 @@ void eval(char *cmdline)
   if (!builtin_cmd(argv1)) {
     sigprocmask(SIG_BLOCK, &mask, &prev_mask);
     if( (pid = fork()) == 0){
+       setpgid(0, 0);
       if(execve(argv1[0], argv1, environ) < 0){
         printf("%s: Command not found.\n", argv1[0]);
         fflush(stdout);
@@ -332,19 +333,21 @@ int parseline(const char *cmdline, char **argv, int cmdnum)
 
 /* 
  * builtin_cmd - If the user has typed a built-in command then execute
- *    it immediately.  
+ *    it immediately.  TODO bg and fg
  */
 int builtin_cmd(char **argv) 
 {
   char *cmd = argv[0];
 
-  // TODO: Implement "quit" and "jobs" commands
-  //       "bg" and "fg" commands are partially handled here,
-  //       but you need to implement the do_bg and do_fg functions.
   if(!strcmp(cmd, "quit")){
     exit(0);
   }
-
+  if(!strcmp(cmd, "jobs")){
+    printf("jobs called\n");
+    printf("%d %d %d\n", jobs[0].pid,jobs[1].pid, jobs[2].pid);
+    listjobs(jobs);
+    return 1;
+  }
   if (!strcmp(cmd, "bg") || !strcmp(cmd, "fg")) { /* bg and fg commands */
       
     int jid;
@@ -428,9 +431,11 @@ void sigchld_handler(int sig)
 
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
         if (WIFEXITED(status) ){
+            printf("job done");
             deletejob(jobs, pid);
         } 
         else if(WIFSIGNALED(status)) {
+          printf("job signaled");
           deletejob(jobs, pid);
         }
         else if (WIFSTOPPED(status)) {
@@ -447,6 +452,16 @@ void sigchld_handler(int sig)
     errno = olderrno;
 }
 
+int getfgpid(){
+  for(int i = 0; i <  (sizeof(jobs) / sizeof(jobs[0])); i++){
+    if(jobs[i].pid >0){
+      if(jobs[i].state == 1) {
+        return jobs[i].pid;
+      }
+    }
+  }
+  return 0;
+}
 
 /* 
  * sigint_handler - The kernel sends a SIGINT to the shell whenver the
@@ -455,7 +470,14 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
-  return;
+  int pid = getfgpid();
+  int negpid = 0 - pid;
+  if(pid != 0 ){
+  printf("%s [%d] %s (%d) %s\n", "Job ", getjobpid(jobs, pid)->jid, " ", pid, " terminated by signal 2");
+  deletejob(jobs, pid);
+  kill(negpid, SIGKILL);
+  }
+  exit(0);
 }
 
 /*
@@ -465,6 +487,7 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+  printf("sigz\n");
   return;
 }
 
