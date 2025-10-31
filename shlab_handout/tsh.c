@@ -220,22 +220,40 @@ void eval(char *cmdline)
     // Set the second command to start after the next space
     cmd2 += 3;
   }
-
+ 
   // Parse command line
   bg = parseline(cmdline, argv1, 1); 
   if (argv1[0] == NULL)  
     return;   /* ignore empty lines */
+
+     // set up stuff for piping
+  int fds[2];
+  int isSecondJob = (cmd2 != NULL);
+  if(isSecondJob) {
+    if (pipe(fds) == -1){
+      exit(1);
+    }
+  }
 
   // handle first command
   sigset_t mask, prev_mask;
   sigemptyset(&mask);
   sigaddset(&mask, SIGCHLD);
 
+
   // If user called quit, jobs, bg or fg execute it immediately
   // If the user has not requested a built-in command fork and call execve
   if (!builtin_cmd(argv1)) {
-    sigprocmask(SIG_BLOCK, &mask, &prev_mask);
-    if( (pid = fork()) == 0){
+    sigprocmask(SIG_BLOCK, &mask, &prev_mask); // idk if this is right
+    if((pid = fork()) == 0){
+      if(isSecondJob) {
+      // close read end?
+      close(fds[0]);   
+      //change stdout to be write end       
+      dup2(fds[1], 1);     
+      //close write end
+      close(fds[1]);
+      }
       setpgid(0, 0);
       if(execve(argv1[0], argv1, environ) < 0){
         printf("%s: Command not found\n", argv1[0]);
@@ -243,6 +261,7 @@ void eval(char *cmdline)
         exit(1);
       }
     }
+
     else {
       // fg job
       if(!bg){
@@ -258,9 +277,30 @@ void eval(char *cmdline)
     }
   }
   // handle second command
-  if(cmd2 != NULL) {
-      bg = parseline(cmd2, argv2, 2);
-  }
+  
+  if(isSecondJob){
+    printf("hello\n");
+    bg = parseline(cmd2, argv2, 2);
+    if (!builtin_cmd(argv2)) {
+      sigprocmask(SIG_BLOCK, &mask, &prev_mask);
+      if((pid = fork()) == 0){
+        setpgid(0, 0);
+        if(execve(argv2[0], argv2, environ) < 0){
+          printf("%s: Command not found\n", argv1[0]);
+          fflush(stdout);
+          exit(1);
+        }
+      }
+  
+      else {
+        close(fds[0]);
+        close(fds[1]);
+        addjob(jobs, pid, FG, cmdline);
+        waitfg(pid);
+        }
+      }
+    }
+
   return;
 }
 
@@ -412,7 +452,7 @@ void do_fg(int jid)
   if(j != NULL) {
     if(j->pid > 0) {
       int negpid = 0 - j->pid;
-      getjobjid(jobs, jid)->state = FG;
+      j->state = FG;
       kill(negpid, SIGCONT);
       waitfg(j->pid);
     }
@@ -456,13 +496,12 @@ void sigchld_handler(int sig)
     int status;
 
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
-      struct job_t * job = getjobpid(jobs, pid); 
         if (WIFEXITED(status)){
           deletejob(jobs, pid);
         } 
         else if(WIFSIGNALED(status)){
           sio_puts("Job [");
-          sio_putl(getjobpid(jobs, pid)->jid);
+          sio_putl(pid2jid(pid));
           sio_puts("] (");
           sio_putl(pid);
           sio_puts(") terminated by signal "); 
@@ -471,7 +510,10 @@ void sigchld_handler(int sig)
           deletejob(jobs, pid);
         }
         else if (WIFSTOPPED(status)) {
-          if (job) job->state = ST; //fix maybe
+          struct job_t * job = getjobpid(jobs, pid); 
+          if (job != NULL) {
+            job->state = ST; 
+          }
           sio_puts("Job [");
           sio_putl(getjobpid(jobs, pid)->jid);
           sio_puts("] (");
@@ -480,21 +522,7 @@ void sigchld_handler(int sig)
           sio_putl(WSTOPSIG(status));
           sio_puts("\n");
         } 
-        else if (WIFCONTINUED(status)) {
-          // maybe print here?
-            getjobpid(jobs, pid)->state = BG;
-        }
-        else{
-          sio_puts("Job [");
-          sio_putl(getjobpid(jobs, pid)->jid);
-          sio_puts("] (");
-          sio_putl(pid);
-          sio_puts(") terminated by signal "); 
-          sio_putl(sig);
-          sio_puts("\n");
-          deletejob(jobs, pid);
-          }
-        }
+    }
 }
 // get job in the foreground
 int getfgpid(){
@@ -531,11 +559,8 @@ void sigint_handler(int sig)
 void sigtstp_handler(int sig) 
 {
   int pid = getfgpid();
-  int negpid = 0 - pid;
-
-  if(pid != 0 ){
-    getjobpid(jobs, pid);
-    kill(negpid, SIGTSTP);
+  if(pid > 0){
+    kill(0 - pid, SIGTSTP);
   }
 }
 
