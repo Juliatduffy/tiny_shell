@@ -305,8 +305,7 @@ void eval(char *cmdline)
       close(fds[0]);
       close(fds[1]);
       sigprocmask(SIG_SETMASK, &prev_mask, NULL);
-      // wait for all programs to finish
-      waitpid(pid, NULL, 0);
+      // wait for 2nd program to finish
       waitpid(pid2, NULL, 0);
     }
   }
