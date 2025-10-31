@@ -456,8 +456,35 @@ void sigchld_handler(int sig)
     int status;
 
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
-      int sig = WTERMSIG(status);
-        if (WIFEXITED(status) || WIFSIGNALED(status)){
+      struct job_t * job = getjobpid(jobs, pid); 
+        if (WIFEXITED(status)){
+          deletejob(jobs, pid);
+        } 
+        else if(WIFSIGNALED(status)){
+          sio_puts("Job [");
+          sio_putl(getjobpid(jobs, pid)->jid);
+          sio_puts("] (");
+          sio_putl(pid);
+          sio_puts(") terminated by signal "); 
+          sio_putl(WTERMSIG(status));
+          sio_puts("\n");
+          deletejob(jobs, pid);
+        }
+        else if (WIFSTOPPED(status)) {
+          if (job) job->state = ST; //fix maybe
+          sio_puts("Job [");
+          sio_putl(getjobpid(jobs, pid)->jid);
+          sio_puts("] (");
+          sio_putl(pid);
+          sio_puts(") stopped by signal "); 
+          sio_putl(WSTOPSIG(status));
+          sio_puts("\n");
+        } 
+        else if (WIFCONTINUED(status)) {
+          // maybe print here?
+            getjobpid(jobs, pid)->state = BG;
+        }
+        else{
           sio_puts("Job [");
           sio_putl(getjobpid(jobs, pid)->jid);
           sio_puts("] (");
@@ -466,31 +493,8 @@ void sigchld_handler(int sig)
           sio_putl(sig);
           sio_puts("\n");
           deletejob(jobs, pid);
-        } 
-        else if (WIFSTOPPED(status)) {
-            sio_puts("Job [");
-            sio_putl(getjobpid(jobs, pid)->jid);
-            sio_puts("] (");
-            sio_putl(pid);
-            sio_puts(") stopped by signal "); 
-            sio_putl(sig);
-            sio_puts("\n");
-            getjobpid(jobs, pid)->state = ST;
-        } 
-        else if (WIFCONTINUED(status)) {
-            getjobpid(jobs, pid)->state = BG;
+          }
         }
-        else{
-          sio_puts("Job [");
-          sio_putl(getjobpid(jobs, pid)->jid);
-          sio_puts("] (");
-          sio_putl(pid);
-          sio_puts(") terminated by signal "); //fix this
-          sio_putl(sig);
-          sio_puts("\n");
-          deletejob(jobs, pid);
-        }
-    }
 }
 // get job in the foreground
 int getfgpid(){
@@ -515,7 +519,6 @@ void sigint_handler(int sig)
   int negpid = 0 - pid;
 
   if(pid > 0 ){
-    deletejob(jobs, pid);
     kill(negpid, SIGINT);
   }
 }
@@ -532,7 +535,7 @@ void sigtstp_handler(int sig)
 
   if(pid != 0 ){
     getjobpid(jobs, pid);
-    kill(negpid, SIGSTOP);
+    kill(negpid, SIGTSTP);
   }
 }
 
