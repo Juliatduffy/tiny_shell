@@ -235,7 +235,7 @@ void eval(char *cmdline)
     }
   }
 
-  // handle first command
+  // handle first command -----------
   sigset_t mask, prev_mask;
   sigemptyset(&mask);
   sigaddset(&mask, SIGCHLD);
@@ -254,7 +254,9 @@ void eval(char *cmdline)
       //close write end
       close(fds[1]);
       }
+      // set new pgid for sigint
       setpgid(0, 0);
+      // run program
       if(execve(argv1[0], argv1, environ) < 0){
         printf("%s: Command not found\n", argv1[0]);
         fflush(stdout);
@@ -262,7 +264,8 @@ void eval(char *cmdline)
       }
     }
 
-    else {
+    // handle second command -----------
+    if(!isSecondJob) {
       // fg job
       if(!bg){
         addjob(jobs, pid, FG, cmdline);
@@ -282,23 +285,31 @@ void eval(char *cmdline)
     bg = parseline(cmd2, argv2, 2);
     if (!builtin_cmd(argv2)) {
       sigprocmask(SIG_BLOCK, &mask, &prev_mask);
-      if((pid = fork()) == 0){
+      int pid2;
+      if((pid2 = fork()) == 0){
+        // close write end
+        close(fds[1]);     
+        // redirect stdin to read end of the pipe
+        dup2(fds[0], 0);   
+        // close fd
+        close(fds[0]);
         setpgid(0, 0);
+        // run next program
         if(execve(argv2[0], argv2, environ) < 0){
           printf("%s: Command not found\n", argv1[0]);
           fflush(stdout);
           exit(1);
         }
       }
-  
-      else {
-        close(fds[0]);
-        close(fds[1]);
-        addjob(jobs, pid, FG, cmdline);
-        waitfg(pid);
-        }
-      }
+      // close the pipe
+      close(fds[0]);
+      close(fds[1]);
+      sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+      // wait for all programs to finish
+      waitpid(pid, NULL, 0);
+      waitpid(pid2, NULL, 0);
     }
+  }
 
   return;
 }
